@@ -30,6 +30,7 @@ extern "C" {
 
 // Number of threads per block.
 #define NUM_THREADS 128
+#define MAX_THREADS 512
 
 // Define CUDA condition check.
 #define CUDA_CHECK(condition) \
@@ -45,32 +46,34 @@ printf("%s\n", cudaGetErrorString(error)); \
 __global__ void compute_diff(double* X, double* Y, double* diff, int D) {
   
   // Use shared memory for faster computation and reduction
-  __shared__ double Z[NUM_THREADS];
-  unsigned int tid = threadIdx.x;
-  unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+  __shared__ double Z[NUM_THREADS][MAX_THREADS/NUM_THREADS];
+  unsigned int tix = threadIdx.x;
+  unsigned int tiy = threadIdx.y;
+  unsigned int i = blockIdx.x*blockDim.x*blockDim.y + threadIdx.y*blockDim.x +
+                    threadIdx.x;
   
   // Save the difference in the appropriate possition.
   double tmp = 0;
 
-  if (tid < D) {
+  if (tix < D) {
     tmp = X[i] - Y[i];
   }
 
-  Z[tid] = tmp * tmp;
+  Z[tix][tiy] = tmp * tmp;
 
   __syncthreads();
 
   // Perform reduction
   for (int offset = blockDim.x/2; offset > 0; offset >>=1) {
 
-    if (tid < offset) {
-      Z[tid] += Z[tid + offset];
+    if (tix < offset) {
+      Z[tix][tiy] += Z[tix + offset][tiy];
     }
     __syncthreads();
   }
 
   // Save the sum at the appropriate position in the diff vector.
-  if (tid == 0) diff[blockIdx.x] = Z[0];
+  if (tix == 0) diff[blockIdx.x*blockDim.y + threadIdx.y] = Z[0][tiy];
 
 }
 
@@ -167,8 +170,9 @@ void euclidean_distance(double *X, double *Y, int D, int Q, int N,
 */
 
   // Define block and grid size
-  dim3 blockSize(NUM_THREADS,1);
-  int num_blocks = Q;
+  const int y_dim = MAX_THREADS/NUM_THREADS;
+  dim3 blockSize(NUM_THREADS,y_dim);
+  const int num_blocks = Q/NUM_THREADS + 1;
   dim3 gridSize(num_blocks,1);
 /*
   printf("Block size = %d, grid size = %d, number of elements (N) = %d\n", 
@@ -208,25 +212,27 @@ void euclidean_distance(double *X, double *Y, int D, int Q, int N,
   CUDA_CHECK(cudaMemcpy(B, prepB, Q*NUM_THREADS*sizeof(double), 
                         cudaMemcpyHostToDevice));
 
-  /*
+/*
   // check errors
   cudaerr = cudaGetLastError();
   if (cudaerr != cudaSuccess)
     printf("Error: %s\n", cudaGetErrorString(cudaerr));
 
   printf("Computed the squared difference!\n");
- 
+ */
+/*
   printf("--- Print matrix A ---\n");
-  print_GPU_Mat(A,D);
+  print_GPU_Mat(A,Q*NUM_THREADS);
   printf("--- Print matrix B ---\n");
-  print_GPU_Mat(B,D);
+  print_GPU_Mat(B,Q*NUM_THREADS);
+*//*
   printf("--- Print matrix RetMat ---\n");
   print_GPU_Mat(RetMat,D);
 */ 
 
   // Define the array to hold the computed difference between vectors
   double *reduced;
-  CUDA_CHECK(cudaMalloc((void**) &reduced, num_blocks*sizeof(double)));
+  CUDA_CHECK(cudaMalloc((void**) &reduced, Q*sizeof(double)));
 
   compute_diff<<<gridSize, blockSize>>>(A,B,reduced,D);
 
@@ -240,7 +246,7 @@ void euclidean_distance(double *X, double *Y, int D, int Q, int N,
 
   double retVal[Q];
   //printf("--- Print reduced value ---\n");
-//  print_GPU_Mat(reduced, Q);
+  //print_GPU_Mat(reduced, Q);
   CUDA_CHECK(cudaMemcpy(&retVal[0], &reduced[0], Q*sizeof(double), 
               cudaMemcpyDeviceToHost));
   //printf("Reduction completed! Returning value is %f\n", retVal);

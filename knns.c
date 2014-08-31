@@ -49,13 +49,13 @@ void compute_distance(knn_struct* queries, knn_struct* dataset, double* dist) {
       euclidean_distance(&data[i*D], &query[0], D, Q, N, i, dist);
  //   }
   }
-
+/*
   for(qi=0; qi<Q; qi++){
     for(i=0; i<N; i++){  
       printf("qi = %d, i = %d, dist = %f\n", qi, i, dist[qi*N + i]);
     }
   }
-
+*/
 }
 
 int findMax(double* X, int k){
