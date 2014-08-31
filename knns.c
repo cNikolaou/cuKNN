@@ -8,6 +8,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "omp.h"
+
 #include "utils.h"
 #include "knn_gpu_utils.h"
 
@@ -42,9 +44,14 @@ void compute_distance(knn_struct* queries, knn_struct* dataset, double* dist) {
 
   int i, j, qi;
 
+  for (i=0; i<N; i++) {
+ //   for (qi=0; qi<Q; qi++) {
+      euclidean_distance(&data[i*D], &query[0], D, Q, N, i, dist);
+ //   }
+  }
+
   for(qi=0; qi<Q; qi++){
-    for(i=0; i<N; i++){
-      dist[qi*N + i] = euclidean_distance(&data[i*D], &query[qi*D], D);
+    for(i=0; i<N; i++){  
       printf("qi = %d, i = %d, dist = %f\n", qi, i, dist[qi*N + i]);
     }
   }

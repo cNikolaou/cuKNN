@@ -3,9 +3,15 @@
  * Implementations of CUDA kernels and functions used to compute the
  * k nearest neightbors.
  *
+ * Problem hightlits: Maximum N = 2^20 data points with maximum 
+ * dimension 128. Up to Q = 1000 queries with k = 1:8 neightbors
+ * for each query.
+ *
  * Design choice: Every block has 128 threads, which is the maximum
  * data dimension. Thus, one block can compute the distance between
- * to vectors with equal or less than 128 dimensions.
+ * two vectors with equal or less than 128 dimensions. We will start
+ * multiple blocks to compute the distance between one data point
+ * and all queries. We will start queries->secondary_dim blocks.
  *
  * Author: Christos Nikolaou
  * Date: August 2014
@@ -36,7 +42,7 @@ printf("%s\n", cudaGetErrorString(error)); \
 
 
 // Function to compute the difference between two vectors. 
-__global__ void compute_diff(double* X, double* Y, double* diff, int N) {
+__global__ void compute_diff(double* X, double* Y, double* diff, int D) {
   
   // Use shared memory for faster computation and reduction
   __shared__ double Z[NUM_THREADS];
@@ -46,7 +52,7 @@ __global__ void compute_diff(double* X, double* Y, double* diff, int N) {
   // Save the difference in the appropriate possition.
   double tmp = 0;
 
-  if (i < N) {
+  if (tid < D) {
     tmp = X[i] - Y[i];
   }
 
@@ -147,36 +153,60 @@ void print_CPU_Mat(double *mat, int length) {
 
 // Compute the euclidean between the N-dimensional vectors X and Y.
 extern "C"
-double euclidean_distance(double *X, double *Y, int N){
+void euclidean_distance(double *X, double *Y, int D, int Q, int N,
+                        int index, double *diff) {
 
   // Define cuda error
   cudaError_t cudaerr;
 
-  // Variable defined to return the difference
-  double retVal;
 /*
   printf("--- Print matrix X ---\n");
-  print_CPU_Mat(X, N);
+  print_CPU_Mat(X, D);
   printf("--- Print matrix Y ---\n");
-  print_CPU_Mat(Y, N);
+  print_CPU_Mat(Y, D);
 */
 
   // Define block and grid size
   dim3 blockSize(NUM_THREADS,1);
-  int num_blocks = N/NUM_THREADS + 1;
+  int num_blocks = Q;
   dim3 gridSize(num_blocks,1);
+/*
+  printf("Block size = %d, grid size = %d, number of elements (N) = %d\n", 
+          NUM_THREADS, num_blocks, D);
+*/
+  // Matrix to prepare the data to pass to device
+  double *prepA, *prepB;
+  prepA = (double*)malloc(NUM_THREADS*Q*sizeof(double));
+  prepB = (double*)malloc(NUM_THREADS*Q*sizeof(double));
 
-//  printf("Block size = %d, grid size = %d, number of elements (N) = %d\n", 
-//          NUM_THREADS, num_blocks, N);
+  for (int i = 0; i < Q; i++) {
+    for (int j = 0; j < NUM_THREADS; j++) {
+      if (j < D) {
+        prepA[i*NUM_THREADS + j] = X[j];
+        prepB[i*NUM_THREADS + j] = Y[i*D + j];
+      } else {
+        prepA[i*NUM_THREADS + j] = 0;
+        prepB[i*NUM_THREADS + j] = 0;
+      }
+    }
+  }
+/*
+  printf("--- Print matrix prepA ---\n");
+  print_CPU_Mat(prepA, Q*NUM_THREADS);
+  printf("--- Print matrix prepB ---\n");
+  print_CPU_Mat(prepB, Q*NUM_THREADS);
+*/
 
   // Define device arrays and pass data from the CPU to GPU
   double *A, *B, *RetMat;
-  CUDA_CHECK(cudaMalloc((void**) &A, N*sizeof(double)));
-  CUDA_CHECK(cudaMalloc((void**) &B, N*sizeof(double)));
-  CUDA_CHECK(cudaMalloc((void**) &RetMat, N*sizeof(double)));
+  CUDA_CHECK(cudaMalloc((void**) &A, Q*NUM_THREADS*sizeof(double)));
+  CUDA_CHECK(cudaMalloc((void**) &B, Q*NUM_THREADS*sizeof(double)));
+  CUDA_CHECK(cudaMalloc((void**) &RetMat, Q*NUM_THREADS*sizeof(double)));
 
-  CUDA_CHECK(cudaMemcpy(A, X, N*sizeof(double), cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemcpy(B, Y, N*sizeof(double), cudaMemcpyHostToDevice));
+  CUDA_CHECK(cudaMemcpy(A, prepA, Q*NUM_THREADS*sizeof(double), 
+                        cudaMemcpyHostToDevice));
+  CUDA_CHECK(cudaMemcpy(B, prepB, Q*NUM_THREADS*sizeof(double), 
+                        cudaMemcpyHostToDevice));
 
   /*
   // check errors
@@ -187,20 +217,20 @@ double euclidean_distance(double *X, double *Y, int N){
   printf("Computed the squared difference!\n");
  
   printf("--- Print matrix A ---\n");
-  print_GPU_Mat(A,N);
+  print_GPU_Mat(A,D);
   printf("--- Print matrix B ---\n");
-  print_GPU_Mat(B,N);
+  print_GPU_Mat(B,D);
   printf("--- Print matrix RetMat ---\n");
-  print_GPU_Mat(RetMat,N);
+  print_GPU_Mat(RetMat,D);
 */ 
 
   // Define the array to hold the computed difference between vectors
   double *reduced;
   CUDA_CHECK(cudaMalloc((void**) &reduced, num_blocks*sizeof(double)));
 
-  compute_diff<<<gridSize, blockSize>>>(A,B,reduced,N);
+  compute_diff<<<gridSize, blockSize>>>(A,B,reduced,D);
 
-//  reduce<<<gridSize, blockSize>>>(RetMat,reduced,N);
+//  reduce<<<gridSize, blockSize>>>(RetMat,reduced,D);
 
   // Check for kernel errors
   cudaerr = cudaGetLastError();
@@ -208,16 +238,19 @@ double euclidean_distance(double *X, double *Y, int N){
     printf("Error: %s\n", cudaGetErrorString(cudaerr));
 
 
+  double retVal[Q];
   //printf("--- Print reduced value ---\n");
-  //print_GPU_Mat(reduced, 1);
-  CUDA_CHECK(cudaMemcpy(&retVal, &reduced[0], sizeof(double), 
+//  print_GPU_Mat(reduced, Q);
+  CUDA_CHECK(cudaMemcpy(&retVal[0], &reduced[0], Q*sizeof(double), 
               cudaMemcpyDeviceToHost));
   //printf("Reduction completed! Returning value is %f\n", retVal);
 
   // Free device memory space
   cudaFree(A); cudaFree(B); cudaFree(RetMat); cudaFree(reduced);
 
-  return (double)retVal;
+  for (int i = 0; i < Q; i++) {
+    diff[index + i*N] = retVal[i];
+  }
 
 }
 

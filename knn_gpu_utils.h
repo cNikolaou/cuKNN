@@ -2,6 +2,7 @@
 #define KNN_GPU_UTILS_
 
 void say_hello();
-double euclidean_distance(double *X, double *Y, int N);
+void euclidean_distance(double *X, double *Y, int D, int Q, int N, 
+                        int index, double *diff);
 
 #endif
