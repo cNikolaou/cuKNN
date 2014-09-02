@@ -42,20 +42,8 @@ void compute_distance(knn_struct* queries, knn_struct* dataset, double* dist) {
   double *data = dataset->data;
   double *query = queries->data;
 
-  int i, j, qi;
+  compute_distance_gpu(data, query, D, Q, N, dist);
 
-  for (i=0; i<N; i++) {
- //   for (qi=0; qi<Q; qi++) {
-      euclidean_distance(&data[i*D], &query[0], D, Q, N, i, dist);
- //   }
-  }
-/*
-  for(qi=0; qi<Q; qi++){
-    for(i=0; i<N; i++){  
-      printf("qi = %d, i = %d, dist = %f\n", qi, i, dist[qi*N + i]);
-    }
-  }
-*/
 }
 
 int findMax(double* X, int k){

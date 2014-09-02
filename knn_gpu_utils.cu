@@ -205,15 +205,6 @@ void euclidean_distance(double *X, double *Y, int D, int Q, int N,
 */
 
   // Define device arrays and pass data from the CPU to GPU
-  double *A, *B, *RetMat;
-  CUDA_CHECK(cudaMalloc((void**) &A, D*sizeof(double)));
-  CUDA_CHECK(cudaMalloc((void**) &B, Q*D*sizeof(double)));
-  CUDA_CHECK(cudaMalloc((void**) &RetMat, Q*NUM_THREADS*sizeof(double)));
-
-  CUDA_CHECK(cudaMemcpy(A, X, D*sizeof(double), 
-                        cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemcpy(B, Y, Q*D*sizeof(double), 
-                        cudaMemcpyHostToDevice));
 
 /*
   // check errors
@@ -237,7 +228,7 @@ void euclidean_distance(double *X, double *Y, int D, int Q, int N,
   double *reduced;
   CUDA_CHECK(cudaMalloc((void**) &reduced, Q*sizeof(double)));
 
-  compute_diff<<<gridSize, blockSize>>>(A,B,reduced,D);
+  compute_diff<<<gridSize, blockSize>>>(X,Y,reduced,D);
 
 //  reduce<<<gridSize, blockSize>>>(RetMat,reduced,D);
 
@@ -255,11 +246,42 @@ void euclidean_distance(double *X, double *Y, int D, int Q, int N,
   //printf("Reduction completed! Returning value is %f\n", retVal);
 
   // Free device memory space
-  cudaFree(A); cudaFree(B); cudaFree(RetMat); cudaFree(reduced);
+  cudaFree(reduced);
 
   for (int i = 0; i < Q; i++) {
     diff[index + i*N] = retVal[i];
   }
 
 }
+
+extern "C"
+void compute_distance_gpu(double *data, double *queries, int D, int Q, int N,
+                          double *dist) {
+
+  double *A, *B; 
+  CUDA_CHECK(cudaMalloc((void**) &A, D*sizeof(double)));
+  CUDA_CHECK(cudaMalloc((void**) &B, Q*D*sizeof(double)));
+  
+  CUDA_CHECK(cudaMemcpy(B, queries, Q*D*sizeof(double), 
+                        cudaMemcpyHostToDevice));\
+  
+  int i, j, qi;
+
+  for (i=0; i<N; i++) {
+    
+    CUDA_CHECK(cudaMemcpy(A, &data[i*D], D*sizeof(double), 
+                        cudaMemcpyHostToDevice));
+    euclidean_distance(A, B, D, Q, N, i, dist);
+  }
+/*
+  for(qi=0; qi<Q; qi++){
+    for(i=0; i<N; i++){  
+      printf("qi = %d, i = %d, dist = %f\n", qi, i, dist[qi*N + i]);
+    }
+  }
+*/
+
+  cudaFree(A); cudaFree(B);
+}
+
 
