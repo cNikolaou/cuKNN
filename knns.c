@@ -100,8 +100,6 @@ void selection(double* dist, double* NNdist, int* NNidx, int N, int Q, int k) {
 void knns(knn_struct* queries, knn_struct* dataset, double *NNdist, 
           int *NNidx, int k) {
 
-  say_hello();
-
   double *dist;
   int q = queries->secondary_dim;
   int n = dataset->secondary_dim;
