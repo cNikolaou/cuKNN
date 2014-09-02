@@ -216,9 +216,9 @@ void euclidean_distance(double *X, double *Y, int D, int Q, int N,
  */
 /*
   printf("--- Print matrix A ---\n");
-  print_GPU_Mat(A,D);
+  print_GPU_Mat(X,D);
   printf("--- Print matrix B ---\n");
-  print_GPU_Mat(B,Q*D);
+  print_GPU_Mat(Y,Q*D);
 *//*
   printf("--- Print matrix RetMat ---\n");
   print_GPU_Mat(RetMat,D);
@@ -259,19 +259,18 @@ void compute_distance_gpu(double *data, double *queries, int D, int Q, int N,
                           double *dist) {
 
   double *A, *B; 
-  CUDA_CHECK(cudaMalloc((void**) &A, D*sizeof(double)));
+  CUDA_CHECK(cudaMalloc((void**) &A, N*D*sizeof(double)));
   CUDA_CHECK(cudaMalloc((void**) &B, Q*D*sizeof(double)));
   
   CUDA_CHECK(cudaMemcpy(B, queries, Q*D*sizeof(double), 
-                        cudaMemcpyHostToDevice));\
-  
+                        cudaMemcpyHostToDevice));
+  CUDA_CHECK(cudaMemcpy(A, data, N*D*sizeof(double), 
+                        cudaMemcpyHostToDevice));
   int i, j, qi;
 
   for (i=0; i<N; i++) {
     
-    CUDA_CHECK(cudaMemcpy(A, &data[i*D], D*sizeof(double), 
-                        cudaMemcpyHostToDevice));
-    euclidean_distance(A, B, D, Q, N, i, dist);
+    euclidean_distance(&A[i*D], B, D, Q, N, i, dist);
   }
 /*
   for(qi=0; qi<Q; qi++){
