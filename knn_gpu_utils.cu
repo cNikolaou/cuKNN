@@ -46,17 +46,20 @@ printf("%s\n", cudaGetErrorString(error)); \
 __global__ void compute_diff(double* X, double* Y, double* diff, int D) {
   
   // Use shared memory for faster computation and reduction
+  //int xdim = D;
+  //int ydim = NUM_THREADS/D;
   __shared__ double Z[NUM_THREADS][MAX_THREADS/NUM_THREADS];
   unsigned int tix = threadIdx.x;
   unsigned int tiy = threadIdx.y;
   unsigned int i = blockIdx.x*blockDim.x*blockDim.y + threadIdx.y*blockDim.x +
                     threadIdx.x;
+  unsigned int ind = threadIdx.x + threadIdx.y*D + blockIdx.x*D*blockDim.y;
   
   // Save the difference in the appropriate possition.
   double tmp = 0;
 
   if (tix < D) {
-    tmp = X[i] - Y[i];
+    tmp = X[tix] - Y[ind];
   }
 
   Z[tix][tiy] = tmp * tmp;
@@ -73,7 +76,7 @@ __global__ void compute_diff(double* X, double* Y, double* diff, int D) {
   }
 
   // Save the sum at the appropriate position in the diff vector.
-  if (tix == 0) diff[blockIdx.x*blockDim.y + threadIdx.y] = Z[0][tiy];
+  if (tix == 0) diff[blockIdx.x*blockDim.y + tiy] = Z[0][tiy];
 
 }
 
@@ -172,13 +175,13 @@ void euclidean_distance(double *X, double *Y, int D, int Q, int N,
   // Define block and grid size
   const int y_dim = MAX_THREADS/NUM_THREADS;
   dim3 blockSize(NUM_THREADS,y_dim);
-  const int num_blocks = Q/NUM_THREADS + 1;
+  const int num_blocks = Q/y_dim + 1;
   dim3 gridSize(num_blocks,1);
 /*
   printf("Block size = %d, grid size = %d, number of elements (N) = %d\n", 
           NUM_THREADS, num_blocks, D);
 */
-  // Matrix to prepare the data to pass to device
+/*  // Matrix to prepare the data to pass to device
   double *prepA, *prepB;
   prepA = (double*)malloc(NUM_THREADS*Q*sizeof(double));
   prepB = (double*)malloc(NUM_THREADS*Q*sizeof(double));
@@ -194,7 +197,7 @@ void euclidean_distance(double *X, double *Y, int D, int Q, int N,
       }
     }
   }
-/*
+*//*
   printf("--- Print matrix prepA ---\n");
   print_CPU_Mat(prepA, Q*NUM_THREADS);
   printf("--- Print matrix prepB ---\n");
@@ -203,13 +206,13 @@ void euclidean_distance(double *X, double *Y, int D, int Q, int N,
 
   // Define device arrays and pass data from the CPU to GPU
   double *A, *B, *RetMat;
-  CUDA_CHECK(cudaMalloc((void**) &A, Q*NUM_THREADS*sizeof(double)));
-  CUDA_CHECK(cudaMalloc((void**) &B, Q*NUM_THREADS*sizeof(double)));
+  CUDA_CHECK(cudaMalloc((void**) &A, D*sizeof(double)));
+  CUDA_CHECK(cudaMalloc((void**) &B, Q*D*sizeof(double)));
   CUDA_CHECK(cudaMalloc((void**) &RetMat, Q*NUM_THREADS*sizeof(double)));
 
-  CUDA_CHECK(cudaMemcpy(A, prepA, Q*NUM_THREADS*sizeof(double), 
+  CUDA_CHECK(cudaMemcpy(A, X, D*sizeof(double), 
                         cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemcpy(B, prepB, Q*NUM_THREADS*sizeof(double), 
+  CUDA_CHECK(cudaMemcpy(B, Y, Q*D*sizeof(double), 
                         cudaMemcpyHostToDevice));
 
 /*
@@ -222,9 +225,9 @@ void euclidean_distance(double *X, double *Y, int D, int Q, int N,
  */
 /*
   printf("--- Print matrix A ---\n");
-  print_GPU_Mat(A,Q*NUM_THREADS);
+  print_GPU_Mat(A,D);
   printf("--- Print matrix B ---\n");
-  print_GPU_Mat(B,Q*NUM_THREADS);
+  print_GPU_Mat(B,Q*D);
 *//*
   printf("--- Print matrix RetMat ---\n");
   print_GPU_Mat(RetMat,D);
