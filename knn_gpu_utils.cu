@@ -31,19 +31,20 @@ extern "C" {
 // Number of threads per block.
 #define DIM_THREADS 128
 #define MAX_THREADS 256
+// Maximum number of blocks available in each dimension
 #define MAX_BLOCKS 65535 
 
 // Define CUDA condition check.
 #define CUDA_CHECK(condition) \
 /* Code block avoids redefinition of cudaError_t error */ \
 do { \
-cudaError_t error = condition; \
-if (error != cudaSuccess) \
-printf("%s\n", cudaGetErrorString(error)); \
+  cudaError_t error = condition; \
+  if (error != cudaSuccess) \
+  printf("%s\n", cudaGetErrorString(error)); \
 } while (0)
 
 
-// Print values of GPU arrays
+// Print values of GPU arrays; used for debugging
 void print_GPU_Mat(double *mat, int length) {
 
   double *hostmat = (double*)malloc(length*sizeof(double));
@@ -57,7 +58,7 @@ void print_GPU_Mat(double *mat, int length) {
   free(hostmat);
 }
 
-// Print values of CPU arrays 
+// Print values of CPU arrays; used for debugging
 void print_CPU_Mat(double *mat, int length) {
 
   for (int i = 0; i < length; ++i) {
@@ -110,8 +111,8 @@ __global__ void compute_dist(double* data, double* query, double* dist,
 }
 
 
-// Compute the euclidean between the N-dimensional vectors X and Y.
-// Function that transfers the data to device memory
+// Compute the euclidean between each D-dimensional row of 'data' matrix and 
+// the D-dimensional row of 'queries' matrix.
 extern "C"
 void compute_distance_gpu(double *data, double *queries, int D, int Q, int N,
                           double *dist) {
