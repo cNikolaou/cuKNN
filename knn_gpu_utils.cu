@@ -72,27 +72,36 @@ void print_CPU_Mat(double *mat, int length) {
 __global__ void compute_dist(double* data, double* query, double* dist, 
                               int D, int N) {
   
-  // Use shared memory for faster computation and reduction
+  // Use shared memory for faster computation and reduction (in each block)
   __shared__ double Z[DIM_THREADS][MAX_THREADS/DIM_THREADS];
+  
+  // Thread index in block
   unsigned int tix = threadIdx.x;
   unsigned int tiy = threadIdx.y;
   
-  unsigned int data_ind = threadIdx.x + threadIdx.y*D + blockIdx.x*blockDim.y*D;
+  // Index in current block for each 'data' matrix dimension
+  unsigned int data_ind = threadIdx.x + threadIdx.y*D + 
+                          blockIdx.x*blockDim.y*D;
+
+  // Index in current grid line (y-dimesnion) for every query computation                          
   unsigned int query_ind = threadIdx.x + blockIdx.y*D;
 
-/*  unsigned int i = blockIdx.x*blockDim.x*blockDim.y + threadIdx.y*blockDim.x +
-                    threadIdx.x;
+/*
+  unsigned int i = blockIdx.x*blockDim.x*blockDim.y + 
+                   threadIdx.y*blockDim.x + threadIdx.x;
 */
 
   // Save the difference in the appropriate possition.
   double tmp = 0;
 
+  // When thread's index is less than data's dimenension, then compute distance
   if (tix < D && data_ind < N*D) {
     tmp = data[data_ind] - query[query_ind];
   }
 
   Z[tix][tiy] = tmp * tmp;
 
+  // Synchronize threads before reduction
   __syncthreads();
 
   // Perform reduction
@@ -120,22 +129,29 @@ void compute_distance_gpu(double *data, double *queries, int D, int Q, int N,
   // Define cuda error
   cudaError_t cudaerr;
 
-  // Define block and grid size
-  const int y_dim = MAX_THREADS/DIM_THREADS;
-  dim3 blockSize(DIM_THREADS,y_dim);
+  // Define block size
+  const int block_y_dim = MAX_THREADS/DIM_THREADS;
+  dim3 blockSize(DIM_THREADS,block_y_dim);
+ 
+  // Define grid size
   int num_blocks_x, num_blocks_y;
 
-  if (N%y_dim == 0)
-    num_blocks_x = N/y_dim;
+  // if number of 'data' D-dimensiona arrays are not equally divided by 
+  // the number of data points per block (block_y_dim), then grid's
+  // x dimension will have a block that doesn't compute the distance
+  // between block_y_dim points.
+  if (N%block_y_dim == 0)
+    num_blocks_x = N/block_y_dim;
   else
-    num_blocks_x = N/y_dim + 1;  
+    num_blocks_x = N/block_y_dim + 1;  
     
   num_blocks_y = Q; //= num_blocks_x/MAX_BLOCKS + 1;
 
   dim3 gridSize(num_blocks_x,num_blocks_y);
+
 /*
   printf("Block size = (%d,%d), grid size = (%d,%d), D = %d, Q = %d, N = %d\n", 
-          DIM_THREADS, y_dim, num_blocks_x, num_blocks_y, D, Q, N);
+          DIM_THREADS, block_y_dim, num_blocks_x, num_blocks_y, D, Q, N);
 */
 
   // Define and allocate the device space that will hold the appropriate data
@@ -150,15 +166,12 @@ void compute_distance_gpu(double *data, double *queries, int D, int Q, int N,
   CUDA_CHECK(cudaMemcpy(deviceQueries, queries, Q*D*sizeof(double), 
                         cudaMemcpyHostToDevice));
 
-
 /*  
   printf("--- Data Matrix ---\n");
   print_GPU_Mat(deviceData, N*D);
   printf("--- Queries Matrix ---\n");
   print_GPU_Mat(deviceQueries, Q*D);
 */  
-
-
 
   compute_dist<<<gridSize, blockSize>>>(deviceData,deviceQueries,
                                           deviceDist,D,N);
@@ -171,15 +184,20 @@ void compute_distance_gpu(double *data, double *queries, int D, int Q, int N,
 
   CUDA_CHECK(cudaMemcpy(dist, deviceDist, Q*N*sizeof(double), 
                         cudaMemcpyDeviceToHost));
-/*
-  int i, qi;
 
-  for(qi=0; qi<Q; qi++){
-    for(i=0; i<N; i++){  
+  // Only for debugging purposes.
+
+  int i, qi;
+  int max_qi = Q;
+  // if N is greater than 10K, then print only the first 10K elements
+  int max_i = (N > 10000) ? 10000 : N; 
+  
+  for(qi=0; qi<max_qi; qi++){
+    for(i=0; i<max_i; i++){  
       printf("qi = %d, i = %d, dist = %f\n", qi, i, dist[qi*N + i]);
     }
   }
-*/
+/**/
 
   cudaFree(deviceData); 
   cudaFree(deviceQueries);
