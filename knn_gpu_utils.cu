@@ -10,8 +10,20 @@
  * Design choice: Every block has 128 threads, which is the maximum
  * data dimension. Thus, one block can compute the distance between
  * two vectors with equal or less than 128 dimensions. We will start
- * multiple blocks to compute the distance between one data point
- * and all queries. We will start queries->secondary_dim blocks.
+ * a grid of blocks with rows (y dimension) equal to the number of queries
+ * (max 1000), an the number of columns (x dimension) will be analogus to
+ * the number of data points. Because different GPUs tend to have different
+ * global memory size, we will compute the distance between Q queries and
+ * (at most) 2^16 data points in GPU.
+ * 
+ * It is easy to change the code a little bit if there are more constraints,
+ * or go to a previous version, if there is a larger global memory available
+ * on the device.
+ *
+ *
+ * Previous version avialable through git and github:
+ * https://github.com/cNikolaou/cuKNN
+ *
  *
  * Author: Christos Nikolaou
  * Date: August 2014
@@ -34,6 +46,12 @@ extern "C" {
 // Maximum number of blocks available in each dimension
 #define MAX_BLOCKS 65535 
 
+// Define the maximum number of points that will be used for the computation
+// for each for-loop (in compute_distance_gpu() function). You can change 
+// the value based on the available memory on your system.
+#define MAX_DATA_POINTS_PROCESSED 65536
+
+
 // Define CUDA condition check.
 #define CUDA_CHECK(condition) \
 /* Code block avoids redefinition of cudaError_t error */ \
@@ -45,7 +63,7 @@ do { \
 
 
 // Print values of GPU arrays; used for debugging
-void print_GPU_Mat(double *mat, int length) {
+void print_GPU_Mat(const double *mat, const int length) {
 
   double *hostmat = (double*)malloc(length*sizeof(double));
 
@@ -59,7 +77,7 @@ void print_GPU_Mat(double *mat, int length) {
 }
 
 // Print values of CPU arrays; used for debugging
-void print_CPU_Mat(double *mat, int length) {
+void print_CPU_Mat(const double *mat, const int length) {
 
   for (int i = 0; i < length; ++i) {
     printf("mat[%d] = %f\n", i, mat[i]);
@@ -67,10 +85,52 @@ void print_CPU_Mat(double *mat, int length) {
 
 }
 
+// Print device informations; used for debugging
+void printDevProp(cudaDeviceProp devProp) {
+    
+    printf("Major revision number:         %d\n",  devProp.major);
+    printf("Minor revision number:         %d\n",  devProp.minor);
+    printf("Name:                          %s\n",  devProp.name);
+    printf("Total global memory:           %lu\n",  devProp.totalGlobalMem);
+    printf("Total shared memory per block: %lu\n",  devProp.sharedMemPerBlock);
+    printf("Total registers per block:     %d\n",  devProp.regsPerBlock);
+    printf("Warp size:                     %d\n",  devProp.warpSize);
+    printf("Maximum memory pitch:          %lu\n",  devProp.memPitch);
+    printf("Maximum threads per block:     %d\n",  devProp.maxThreadsPerBlock);
+    for (int i = 0; i < 3; ++i)
+        printf("Maximum dimension %d of block:  %d\n", i, devProp.maxThreadsDim[i]);
+    for (int i = 0; i < 3; ++i)
+        printf("Maximum dimension %d of grid:   %d\n", i, devProp.maxGridSize[i]);
+    printf("Clock rate:                    %d\n",  devProp.clockRate);
+    printf("Total constant memory:         %lu\n",  devProp.totalConstMem);
+    printf("Texture alignment:             %lu\n",  devProp.textureAlignment);
+    printf("Concurrent copy and execution: %s\n",  (devProp.deviceOverlap ? "Yes" : "No"));
+    printf("Number of multiprocessors:     %d\n",  devProp.multiProcessorCount);
+    printf("Kernel execution timeout:      %s\n",  (devProp.kernelExecTimeoutEnabled ?"Yes" : "No"));
+    return;
+
+}
+
+// Print information for all the available devices; used for debugging
+void print_devices_data() {
+    int devCount;
+    cudaGetDeviceCount(&devCount);
+    printf("CUDA Device Query...\n");
+    printf("There are %d CUDA devices.\n", devCount);
+ 
+    for (int i = 0; i < devCount; ++i)
+    {
+        // Get device properties
+        printf("\nCUDA Device #%d\n", i);
+        cudaDeviceProp devProp;
+        cudaGetDeviceProperties(&devProp, i);
+        printDevProp(devProp);
+    }  
+}
 
 // Function to compute the difference between two vectors. 
-__global__ void compute_dist(double* data, double* query, double* dist, 
-                              int D, int N) {
+__global__ void compute_dist(const double* data, const double* query, 
+                             double* dist, const int D, const int N) {
   
   // Use shared memory for faster computation and reduction (in each block)
   __shared__ double Z[DIM_THREADS][MAX_THREADS/DIM_THREADS];
@@ -123,8 +183,11 @@ __global__ void compute_dist(double* data, double* query, double* dist,
 // Compute the euclidean between each D-dimensional row of 'data' matrix and 
 // the D-dimensional row of 'queries' matrix.
 extern "C"
-void compute_distance_gpu(double *data, double *queries, int D, int Q, int N,
+void compute_distance_gpu(const double *data, const double *queries,
+                          const int D, const int Q, const int N,
                           double *dist) {
+
+  print_devices_data();
 
   // Define cuda error
   cudaError_t cudaerr;
@@ -157,14 +220,23 @@ void compute_distance_gpu(double *data, double *queries, int D, int Q, int N,
   // Define and allocate the device space that will hold the appropriate data
   double *deviceData, *deviceQueries, *deviceDist; 
   
+  printf("Total memory: %d\n", (N*D+Q*D+Q*N)*sizeof(double));
+
+  printf("Allocating device memory for the data matrix.\n");
   CUDA_CHECK(cudaMalloc((void**) &deviceData, N*D*sizeof(double)));
+  printf("Allocating device memory for the queries matrix.\n");
   CUDA_CHECK(cudaMalloc((void**) &deviceQueries, Q*D*sizeof(double)));
+  printf("Allocating device memory for the distance matrix.\n");
   CUDA_CHECK(cudaMalloc((void**) &deviceDist, Q*N*sizeof(double)));
 
+  printf("Transfering 'data' matrix from host to device.\n");
   CUDA_CHECK(cudaMemcpy(deviceData, data, N*D*sizeof(double), 
                         cudaMemcpyHostToDevice));
+  printf("Transfering 'queries' matrix from host to device.\n");
   CUDA_CHECK(cudaMemcpy(deviceQueries, queries, Q*D*sizeof(double), 
                         cudaMemcpyHostToDevice));
+
+  
 
 /*  
   printf("--- Data Matrix ---\n");
@@ -173,6 +245,7 @@ void compute_distance_gpu(double *data, double *queries, int D, int Q, int N,
   print_GPU_Mat(deviceQueries, Q*D);
 */  
 
+  printf("Call kernel for distance computation.\n");
   compute_dist<<<gridSize, blockSize>>>(deviceData,deviceQueries,
                                           deviceDist,D,N);
 
@@ -182,6 +255,7 @@ void compute_distance_gpu(double *data, double *queries, int D, int Q, int N,
     printf("Error: %s\n", cudaGetErrorString(cudaerr));
 
 
+  printf("Transfering 'dist' matrix from device to host.\n");
   CUDA_CHECK(cudaMemcpy(dist, deviceDist, Q*N*sizeof(double), 
                         cudaMemcpyDeviceToHost));
 

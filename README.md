@@ -1,4 +1,4 @@
 cuKNN
 =====
 
-CUDA implementation of the k-NN algorithm
+CUDA implementation of the k-NN algorithm.
