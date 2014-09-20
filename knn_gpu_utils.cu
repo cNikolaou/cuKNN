@@ -42,14 +42,14 @@ extern "C" {
 
 // Number of threads per block.
 #define DIM_THREADS 128
-#define MAX_THREADS 256
+#define MAX_THREADS 128
 // Maximum number of blocks available in each dimension
 #define MAX_BLOCKS 65535 
 
 // Define the maximum number of points that will be used for the computation
 // for each for-loop (in compute_distance_gpu() function). You can change 
 // the value based on the available memory on your system.
-#define MAX_DATA_POINTS_PROCESSED 65536
+#define MAX_DATA_POINTS 2
 
 
 // Define CUDA condition check.
@@ -63,7 +63,7 @@ do { \
 
 
 // Print values of GPU arrays; used for debugging
-void print_GPU_Mat(const double *mat, const int length) {
+void print_gpu_mat(const double *mat, const int length) {
 
   double *hostmat = (double*)malloc(length*sizeof(double));
 
@@ -77,7 +77,7 @@ void print_GPU_Mat(const double *mat, const int length) {
 }
 
 // Print values of CPU arrays; used for debugging
-void print_CPU_Mat(const double *mat, const int length) {
+void print_cpu_mat(const double *mat, const int length) {
 
   for (int i = 0; i < length; ++i) {
     printf("mat[%d] = %f\n", i, mat[i]);
@@ -130,7 +130,8 @@ void print_devices_data() {
 
 // Function to compute the difference between two vectors. 
 __global__ void compute_dist(const double* data, const double* query, 
-                             double* dist, const int D, const int N) {
+                             double* dist, const int D, const int N,
+                             const int offset) {
   
   // Use shared memory for faster computation and reduction (in each block)
   __shared__ double Z[DIM_THREADS][MAX_THREADS/DIM_THREADS];
@@ -174,8 +175,8 @@ __global__ void compute_dist(const double* data, const double* query,
   }
 
   // Save the sum at the appropriate position in the diff vector.
-  if (tix == 0 && data_ind < N*D) 
-    dist[threadIdx.y + blockIdx.x*blockDim.y + N*blockIdx.y] = Z[tix][tiy];
+  if (tix == 0)// && data_ind < N*D) 
+    dist[threadIdx.y + blockIdx.x*blockDim.y + N*blockIdx.y + offset*MAX_DATA_POINTS] = Z[tix][tiy]; //+ N*blockIdx.y
 
 }
 
@@ -203,51 +204,82 @@ void compute_distance_gpu(const double *data, const double *queries,
   // the number of data points per block (block_y_dim), then grid's
   // x dimension will have a block that doesn't compute the distance
   // between block_y_dim points.
-  if (N%block_y_dim == 0)
-    num_blocks_x = N/block_y_dim;
+/*  if (N%block_y_dim == 0)
+    num_blocks_x = (N/MAX_DATA_POINTS)/block_y_dim;
   else
-    num_blocks_x = N/block_y_dim + 1;  
+    num_blocks_x = (N/MAX_DATA_POINTS)/block_y_dim + 1;  
     
   num_blocks_y = Q; //= num_blocks_x/MAX_BLOCKS + 1;
-
+*/
+  num_blocks_x = MAX_DATA_POINTS/block_y_dim;
+  num_blocks_y = Q;
   dim3 gridSize(num_blocks_x,num_blocks_y);
 
-/*
+
   printf("Block size = (%d,%d), grid size = (%d,%d), D = %d, Q = %d, N = %d\n", 
           DIM_THREADS, block_y_dim, num_blocks_x, num_blocks_y, D, Q, N);
-*/
+/**/
 
   // Define and allocate the device space that will hold the appropriate data
   double *deviceData, *deviceQueries, *deviceDist; 
   
-  printf("Total memory: %d\n", (N*D+Q*D+Q*N)*sizeof(double));
+  printf("Maximum memory used during computations: %d\n", (D*MAX_DATA_POINTS+Q*D+Q*N)*sizeof(double));
 
   printf("Allocating device memory for the data matrix.\n");
-  CUDA_CHECK(cudaMalloc((void**) &deviceData, N*D*sizeof(double)));
+  CUDA_CHECK(cudaMalloc((void**) &deviceData, 
+                        MAX_DATA_POINTS*D*sizeof(double)));
   printf("Allocating device memory for the queries matrix.\n");
   CUDA_CHECK(cudaMalloc((void**) &deviceQueries, Q*D*sizeof(double)));
   printf("Allocating device memory for the distance matrix.\n");
   CUDA_CHECK(cudaMalloc((void**) &deviceDist, Q*N*sizeof(double)));
 
-  printf("Transfering 'data' matrix from host to device.\n");
-  CUDA_CHECK(cudaMemcpy(deviceData, data, N*D*sizeof(double), 
-                        cudaMemcpyHostToDevice));
+//  printf("Transfering 'data' matrix from host to device.\n");
+//  CUDA_CHECK(cudaMemcpy(deviceData, data, N*D*sizeof(double), 
+//                        cudaMemcpyHostToDevice));
   printf("Transfering 'queries' matrix from host to device.\n");
   CUDA_CHECK(cudaMemcpy(deviceQueries, queries, Q*D*sizeof(double), 
                         cudaMemcpyHostToDevice));
 
-  
+/*  printf("--- All Data Matrix ---\n");
+  print_cpu_mat(data, N*D);
+  printf("--- Queries Matrix ---\n");
+  print_gpu_mat(deviceQueries, Q*D);
+*/
+  int max_iterations = N/MAX_DATA_POINTS;
+
+  if (N%MAX_DATA_POINTS != 0) {
+    max_iterations++;
+  }
+
+  printf("Max iterations %d\n", max_iterations);
+  int offset;
+
+  for (int iter = 0; iter < max_iterations; ++iter) {
+    
+//    printf("Transfering 'data' matrix from host to device. Iter = %d\n", iter);
+    
+    // Offset in dist matrix
+    offset = iter * MAX_DATA_POINTS;
+    // offset*D equals to the values
+    CUDA_CHECK(cudaMemcpy(deviceData, &data[offset*D], 
+                          MAX_DATA_POINTS*D*sizeof(double),
+                          cudaMemcpyHostToDevice));
+    
+//    printf("--- Data Matrix ---\n");
+//    print_gpu_mat(deviceData, MAX_DATA_POINTS*D);
+
+//    printf("Call kernel for distance computation.\n");
+    compute_dist<<<gridSize, blockSize>>>(deviceData,deviceQueries,
+                                          deviceDist,D,N,iter);
+  }
 
 /*  
   printf("--- Data Matrix ---\n");
-  print_GPU_Mat(deviceData, N*D);
+  print_gpu_mat(deviceData, N*D);
   printf("--- Queries Matrix ---\n");
-  print_GPU_Mat(deviceQueries, Q*D);
+  print_gpu_mat(deviceQueries, Q*D);
 */  
 
-  printf("Call kernel for distance computation.\n");
-  compute_dist<<<gridSize, blockSize>>>(deviceData,deviceQueries,
-                                          deviceDist,D,N);
 
   // Check for kernel errors
   cudaerr = cudaGetLastError();
