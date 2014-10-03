@@ -1,0 +1,22 @@
+# ignored files #
+#################
+
+### Text files ###
+# all .txt files that can be used to test output
+*.txt
+# all .swp swap files
+*.swp
+# all .o files (object files) that are created during compilation
+*.o
+*.so
+# all .bin files that are used for data
+*.bin
+
+### Utility files  ###
+# all .m files that are used for importing data to MATLAB
+*.m
+# all .sh scripts
+*.sh
+
+### Program ###
+knnTest
