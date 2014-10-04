@@ -71,10 +71,10 @@ int main(int argc, char **argv){
   int numQueries = atoi(argv[3]);
   int k = atoi(argv[4]);
 
-  char *dataset_file = "training_set.bin";
-  char *query_file = "query_set.bin";
-  char *KNNdist_file = "KNNdist.bin";
-  char *KNNidx_file = "KNNidx.bin" ;
+  char *dataset_file = "training_set_gpu.bin";
+  char *query_file = "query_set_gpu.bin";
+  char *KNNdist_file = "KNNdist_gpu.bin";
+  char *KNNidx_file = "KNNidx_gpu.bin" ;
 
   printf("objects: %d\n", numObjects);
   printf("dimentions: %d\n", numDim);

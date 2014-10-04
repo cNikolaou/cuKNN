@@ -89,12 +89,15 @@ void kselect(double* dist, double* NNdist, int* NNidx, int N, int k) {
 
 void selection(double* dist, double* NNdist, int* NNidx, int N, int Q, int k) {
 
+selection_gpu(dist, NNdist, NNidx, N, Q, k);
+
+/*
   int i = 0, j = 0;
 
   for(i=0; i<Q; i++){
     kselect(&dist[i*N], &NNdist[i*k], &NNidx[i*k], N, k);
   }
-
+*/
 }
 
 void knns(knn_struct* queries, knn_struct* dataset, double *NNdist, 
