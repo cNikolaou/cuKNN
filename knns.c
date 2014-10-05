@@ -1,22 +1,25 @@
 /**
  * 
+ * This file contains the appropriate sequential functions that are used
+ * to find the k nearest neighbors of each query.
+ * 
+ * The CUDA parallel implementations "comments" the sequential code and 
+ * calls the appropriate functions from the knn_gpu_utils.cu file. You
+ * can "uncomment" the sequential code and use it as a benchmark.
+ * 
+ *
  * Modified by: Christos Nikolaou
  * Date: August 2014
  *
-*/
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "omp.h"
-
 #include "utils.h"
 #include "knn_gpu_utils.h"
 
-/*
- * This function has been changed to use a parallel version
- *
- */
+// This function has been changed to use a parallel version
 
 /*
 double euclidean_distance(double *X, double *Y, int N){
@@ -46,6 +49,9 @@ void compute_distance(knn_struct* queries, knn_struct* dataset, double* dist) {
 
 }
 
+// This function has been changed to use a parallel version
+
+/*
 int findMax(double* X, int k){
 
   int i=0;
@@ -63,7 +69,11 @@ int findMax(double* X, int k){
   return(maxidx);
 
 }
+*/
 
+// This function has been changed to use a parallel version
+
+/*
 void kselect(double* dist, double* NNdist, int* NNidx, int N, int k) {
 
 
@@ -86,10 +96,13 @@ void kselect(double* dist, double* NNdist, int* NNidx, int N, int k) {
   }
 
 }
+*/
 
 void selection(double* dist, double* NNdist, int* NNidx, int N, int Q, int k) {
 
 selection_gpu(dist, NNdist, NNidx, N, Q, k);
+
+// This function has been changed to use a parallel version
 
 /*
   int i = 0, j = 0;
@@ -98,6 +111,7 @@ selection_gpu(dist, NNdist, NNidx, N, Q, k);
     kselect(&dist[i*N], &NNdist[i*k], &NNidx[i*k], N, k);
   }
 */
+
 }
 
 void knns(knn_struct* queries, knn_struct* dataset, double *NNdist, 

@@ -13,8 +13,8 @@ void random_initialization(knn_struct *set, int cal){
   int m = set->secondary_dim;
   double *tmp_set = set->data;
 
-  srand(0);
-  //srand(cal*time(NULL));
+  srand(0); // Change it to take another sequence
+  //srand(cal*time(NULL)); // Uncomment to get a random sequence each time
   /*Generate random floating points [-50 50]*/
   for(i=0; i<m*n; i++){
     tmp_set[i] = 100 * (double)rand() / RAND_MAX - 50; 
